@@ -45,6 +45,14 @@ window.__ModuleLoader__.load({
 [data-mv-msg]{font-size:12px;min-height:18px;opacity:.8;}
 [data-mv-msg][data-err]{color:#e2706f;}
 [data-mv-ok]{color:rgba(90,170,120,.95);}
+[data-mv-sep]{display:flex;align-items:center;gap:12px;font-size:11.5px;letter-spacing:.06em;opacity:.45;margin:6px 0 0;}
+[data-mv-sep]:before,[data-mv-sep]:after{content:"";height:1px;flex:1;background:rgba(127,127,127,.28);}
+[data-mv-file]{font-size:12px;color:inherit;max-width:100%;}
+[data-mv-file]::file-selector-button{margin-right:10px;padding:7px 14px;border-radius:8px;border:1px solid rgba(127,127,127,.35);background:transparent;color:inherit;font-size:12px;cursor:pointer;}
+[data-mv-file]::file-selector-button:hover{background:rgba(127,127,127,.1);}
+[data-mv-kv]{display:flex;gap:10px;font-size:12.5px;line-height:1.9;opacity:.85;}
+[data-mv-kv b]{font-weight:600;}
+[data-mv-kv span:last-child]{margin-left:auto;font-family:ui-monospace,Consolas,monospace;}
 `
 
     const getJson = async (url) => {
@@ -62,6 +70,8 @@ window.__ModuleLoader__.load({
       const [outDir, setOutDir] = React.useState('')
       const [pwd, setPwd] = React.useState('')
       const [confirming, setConfirming] = React.useState(false)
+      const [file, setFile] = React.useState(null)
+      const [pwd2, setPwd2] = React.useState('')
       const [job, setJob] = React.useState(null)
       const [msg, setMsg] = React.useState('')
       const [err, setErr] = React.useState(false)
@@ -135,6 +145,37 @@ window.__ModuleLoader__.load({
           const r = await res.json()
           if (r && r.ok) {
             setJob(r.job)
+          } else {
+            setErr(true)
+            setMsg('没能开始：' + ((r && r.error) || res.status))
+          }
+        } catch (e) {
+          setErr(true)
+          setMsg('没能开始：' + ((e && e.message) || e))
+        }
+      }
+
+      // 导入：包直接当 body 传上去。浏览器会边读边发，三百兆也不用整份读进内存。
+      // 密码走 query（base64），因为这个接口收的是裸二进制流，没有地方放表单字段。
+      const startImport = async () => {
+        if (!file) return
+        setErr(false)
+        setMsg('正在传包…')
+        try {
+          const bytes = new TextEncoder().encode(pwd2 || '')
+          let raw = ''
+          for (const b of bytes) raw += String.fromCharCode(b)
+          const b64 = btoa(raw)
+
+          const res = await fetch(API + '/import?pwd=' + encodeURIComponent(b64), {
+            method: 'POST',
+            headers: { 'content-type': 'application/octet-stream' },
+            body: file,
+          })
+          const r = await res.json()
+          if (r && r.ok) {
+            setJob(r.job)
+            setMsg('传完了，正在解包…')
           } else {
             setErr(true)
             setMsg('没能开始：' + ((r && r.error) || res.status))
@@ -268,38 +309,193 @@ window.__ModuleLoader__.load({
                 '打包带走',
               ),
 
+        // ---- 从另一台电脑搬过来 ----
+        h('div', { 'data-mv-sep': '' }, '或者，从另一台电脑搬过来'),
+
+        h(
+          'div',
+          { 'data-mv-card': '' },
+          h('div', { 'data-mv-title': '' }, '导入一份搬家包'),
+          h(
+            'div',
+            { 'data-mv-head': '' },
+            '选那份 .dshpack，输打包时设的密码。撞上的东西会给原来那份让路，不删任何文件。',
+          ),
+          h('input', {
+            'data-mv-file': '',
+            type: 'file',
+            accept: '.dshpack',
+            disabled: running,
+            onChange: (e) => {
+              const f = e.target.files && e.target.files[0]
+              setFile(f || null)
+              setErr(false)
+              setMsg('')
+            },
+          }),
+          file
+            ? h(
+                'div',
+                { 'data-mv-grp': '', style: { marginTop: '8px' } },
+                h('span', { 'data-mv-grp-name': '' }, file.name),
+                h('span', { 'data-mv-grp-s': '' }, mb(file.size)),
+              )
+            : h('div', { 'data-mv-note': '', style: { marginTop: '8px' } }, '还没选文件'),
+          h(
+            'div',
+            { 'data-mv-field': '', style: { marginTop: '12px' } },
+            h('div', { 'data-mv-label': '' }, '密码'),
+            h('input', {
+              'data-mv-input': '',
+              type: 'password',
+              value: pwd2,
+              disabled: running,
+              autoComplete: 'off',
+              onChange: (e) => setPwd2(e.target.value),
+            }),
+          ),
+          h(
+            'button',
+            {
+              'data-mv-btn': '',
+              style: { marginTop: '12px' },
+              disabled: running || !file,
+              onClick: startImport,
+            },
+            running ? '正在处理' : '导入',
+          ),
+        ),
+
         // 完成
         done
-          ? h(
-              'div',
-              { 'data-mv-card': '' },
-              h('div', { 'data-mv-title': '' }, '打好了'),
-              h('div', { 'data-mv-path': '' }, job.result.dir),
-              h(
+          ? job.kind === 'import'
+            ? h(
                 'div',
-                { 'data-mv-grp': '' },
-                h('span', { 'data-mv-grp-name': '' }, '包大小'),
-                h('span', { 'data-mv-grp-s': '' }, job.result.human),
-              ),
-              h(
-                'button',
-                {
-                  'data-mv-btn': '',
-                  'data-ghost': '',
-                  style: { marginTop: '10px' },
-                  onClick: () => {
-                    try {
-                      navigator.clipboard.writeText(job.result.dir)
-                      setErr(false)
-                      setMsg('路径已复制')
-                    } catch {
-                      setMsg('复制不了，手选一下吧')
-                    }
+                { 'data-mv-card': '' },
+                h('div', { 'data-mv-title': '' }, '搬完了'),
+                h(
+                  'div',
+                  { 'data-mv-kv': '' },
+                  h('b', {}, '新写入'),
+                  h('span', {}, String(job.result.totals.written)),
+                ),
+                h(
+                  'div',
+                  { 'data-mv-kv': '' },
+                  h('b', {}, '覆盖'),
+                  h('span', {}, String(job.result.totals.replaced)),
+                ),
+                h(
+                  'div',
+                  { 'data-mv-kv': '' },
+                  h('b', {}, '没动'),
+                  h('span', {}, String(job.result.totals.skipped)),
+                ),
+                h(
+                  'div',
+                  { 'data-mv-kv': '' },
+                  h('b', {}, '失败'),
+                  h('span', {}, String(job.result.totals.failed)),
+                ),
+                (job.result.report && job.result.report.backedUp && job.result.report.backedUp.length)
+                  ? h(
+                      'div',
+                      { style: { marginTop: '14px' } },
+                      h('div', { 'data-mv-title': '' }, '被替换的文件'),
+                      ...job.result.report.backedUp.map((b) =>
+                        h(
+                          'div',
+                          { 'data-mv-kv': '' },
+                          h('b', {}, b.rel),
+                          h('span', {}, '备份为 ' + b.bak),
+                        ),
+                      ),
+                    )
+                  : null,
+                (job.result.report && job.result.report.workspaces && job.result.report.workspaces.length)
+                  ? h(
+                      'div',
+                      { style: { marginTop: '14px' } },
+                      h('div', { 'data-mv-title': '' }, '工作区落在哪'),
+                      ...job.result.report.workspaces.map((w) =>
+                        h(
+                          'div',
+                          { 'data-mv-kv': '' },
+                          h('b', {}, w.old),
+                          h('span', {}, w.now === w.old ? '原样' : w.how + ' → ' + w.now),
+                        ),
+                      ),
+                    )
+                  : null,
+                job.result.missing && job.result.missing.length
+                  ? h(
+                      'div',
+                      { 'data-mv-confirm': '', style: { marginTop: '12px' } },
+                      h('span', {}, '这台机器上还缺这几个插件：' + job.result.missing.join('、')),
+                    )
+                  : null,
+                h('div', { 'data-mv-title': '', style: { marginTop: '14px' } }, '搬家说明'),
+                h('div', { 'data-mv-path': '' }, job.result.dir),
+                h(
+                  'button',
+                  {
+                    'data-mv-btn': '',
+                    style: { marginTop: '10px' },
+                    onClick: () => {
+                      // 同一个 origin，浏览器直接渲染服务器吐的那份 HTML
+                      window.open(API + '/report?id=' + encodeURIComponent(job.id), '_blank')
+                    },
                   },
-                },
-                '复制路径',
-              ),
-            )
+                  '打开搬家说明',
+                ),
+                h(
+                  'button',
+                  {
+                    'data-mv-btn': '',
+                    'data-ghost': '',
+                    style: { marginTop: '10px', marginLeft: '8px' },
+                    onClick: () => {
+                      try {
+                        navigator.clipboard.writeText(job.result.dir)
+                        setMsg('路径已复制')
+                      } catch {
+                        setMsg('复制不了，手选一下吧')
+                      }
+                    },
+                  },
+                  '复制路径',
+                ),
+              )
+            : h(
+                'div',
+                { 'data-mv-card': '' },
+                h('div', { 'data-mv-title': '' }, '打好了'),
+                h('div', { 'data-mv-path': '' }, job.result.dir),
+                h(
+                  'div',
+                  { 'data-mv-grp': '' },
+                  h('span', { 'data-mv-grp-name': '' }, '包大小'),
+                  h('span', { 'data-mv-grp-s': '' }, job.result.human),
+                ),
+                h(
+                  'button',
+                  {
+                    'data-mv-btn': '',
+                    'data-ghost': '',
+                    style: { marginTop: '10px' },
+                    onClick: () => {
+                      try {
+                        navigator.clipboard.writeText(job.result.dir)
+                        setErr(false)
+                        setMsg('路径已复制')
+                      } catch {
+                        setMsg('复制不了，手选一下吧')
+                      }
+                    },
+                  },
+                  '复制路径',
+                ),
+              )
           : null,
 
         h(

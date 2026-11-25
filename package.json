@@ -1,6 +1,6 @@
 {
   "name": "dsh-move",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "把 DSH 里的会话、插件、skill、人设打包带走，换一台电脑接着用。",
   "license": "MIT",
   "author": "小鲤 (余鲤)",
